@@ -1,0 +1,1776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bodycam FPS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #000; }
+        canvas { display: block; }
+        
+        #blocker {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); display: flex;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        #instructions { text-align: center; color: #fff; font-family: monospace; }
+        #instructions h1 { font-size: 36px; margin-bottom: 20px; }
+        #instructions p { font-size: 16px; margin: 5px 0; }
+
+        /* Bodycam overlay effects */
+        #bodycam-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 50;
+        }
+
+        /* Vignette effect */
+        #vignette {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.7) 100%);
+            pointer-events: none; z-index: 51;
+        }
+
+        /* Scanlines */
+        #scanlines {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15) 0px,
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            pointer-events: none; z-index: 52;
+            opacity: 0.6;
+        }
+
+        /* Film grain animation */
+        #grain {
+            position: fixed; top: -50%; left: -50%; width: 200%; height: 200%;
+            pointer-events: none; z-index: 53;
+            opacity: 0.08;
+            background-image: url('data:image/svg+xml,<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="1"/></svg>');
+            animation: grain 0.5s steps(10) infinite;
+        }
+
+        @keyframes grain {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-5%, -10%); }
+            20% { transform: translate(-15%, 5%); }
+            30% { transform: translate(7%, -25%); }
+            40% { transform: translate(-5%, 25%); }
+            50% { transform: translate(-15%, 10%); }
+            60% { transform: translate(15%, 0%); }
+            70% { transform: translate(0%, 15%); }
+            80% { transform: translate(3%, 35%); }
+            90% { transform: translate(-10%, 10%); }
+        }
+
+        /* Bodycam HUD */
+        #hud {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 60;
+            font-family: 'Courier New', monospace;
+        }
+
+        /* Recording indicator */
+        #rec-indicator {
+            position: absolute; top: 30px; left: 30px;
+            display: flex; align-items: center; gap: 10px;
+            color: #fff; font-size: 18px; font-weight: bold;
+            text-shadow: 0 0 10px rgba(255,0,0,0.8);
+        }
+        #rec-dot {
+            width: 15px; height: 15px; border-radius: 50%;
+            background: #ff0000;
+            animation: blink 1s ease-in-out infinite;
+            box-shadow: 0 0 10px #ff0000, 0 0 20px #ff0000;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+
+        /* Timestamp */
+        #timestamp {
+            position: absolute; bottom: 30px; left: 30px;
+            color: #fff; font-size: 16px;
+            text-shadow: 0 0 5px rgba(255,255,255,0.5);
+            letter-spacing: 2px;
+        }
+
+        /* Camera ID */
+        #camera-id {
+            position: absolute; top: 30px; right: 30px;
+            color: #fff; font-size: 14px; text-align: right;
+            text-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+
+        /* Crosshair */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px; height: 20px;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(255,255,255,0.7);
+        }
+        #crosshair::before {
+            width: 2px; height: 100%; left: 50%; transform: translateX(-50%);
+        }
+        #crosshair::after {
+            height: 2px; width: 100%; top: 50%; transform: translateY(-50%);
+        }
+
+        /* Lens distortion border */
+        #lens-border {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 54;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.9);
+            border-radius: 30px;
+        }
+
+        /* Chromatic aberration simulation via border colors */
+        #chromatic-border {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 55;
+            box-shadow: 
+                inset 5px 0 30px rgba(255,0,0,0.15),
+                inset -5px 0 30px rgba(0,0,255,0.15),
+                inset 0 5px 30px rgba(0,255,0,0.1),
+                inset 0 -5px 30px rgba(255,0,255,0.1);
+            border-radius: 25px;
+        }
+
+        /* Color grading overlay */
+        #color-grade {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 56;
+            background: linear-gradient(135deg, 
+                rgba(100, 120, 140, 0.1) 0%, 
+                transparent 50%, 
+                rgba(80, 100, 120, 0.08) 100%);
+            mix-blend-mode: multiply;
+        }
+
+        /* Light leak effect */
+        #light-leak {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 57;
+            background: radial-gradient(ellipse at 80% 20%, 
+                rgba(255, 200, 100, 0.1) 0%, 
+                transparent 50%);
+            animation: lightLeak 8s ease-in-out infinite alternate;
+        }
+
+        @keyframes lightLeak {
+            0% { opacity: 0.3; transform: translate(0, 0); }
+            25% { opacity: 0.6; transform: translate(-5%, 3%); }
+            50% { opacity: 0.4; transform: translate(3%, -2%); }
+            75% { opacity: 0.7; transform: translate(-2%, 5%); }
+            100% { opacity: 0.5; transform: translate(0, 0); }
+        }
+
+        /* HUD info bars */
+        #battery {
+            position: absolute; bottom: 30px; right: 30px;
+            color: #fff; font-size: 14px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        #battery-icon {
+            width: 30px; height: 15px; border: 2px solid #fff;
+            position: relative; padding: 2px;
+        }
+        #battery-icon::after {
+            content: ''; position: absolute; right: -5px; top: 50%;
+            transform: translateY(-50%); width: 3px; height: 8px;
+            background: #fff;
+        }
+        #battery-level {
+            height: 100%; width: 75%; background: #00ff00;
+        }
+
+        /* Ammo display */
+        #ammo-display {
+            position: absolute;
+            bottom: 30px;
+            right: 120px;
+            color: #fff;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+            letter-spacing: 2px;
+        }
+
+        /* Weapon indicator */
+        #weapon-indicator {
+            position: absolute;
+            bottom: 80px;
+            right: 30px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+        }
+
+        /* 3D Inventory System */
+        #inventory-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 200;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+        }
+
+        #inventory-container {
+            width: 900px;
+            max-width: 95vw;
+            height: 600px;
+            max-height: 90vh;
+            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            border: 2px solid rgba(0, 200, 255, 0.3);
+            border-radius: 15px;
+            box-shadow: 
+                0 0 40px rgba(0, 200, 255, 0.2),
+                inset 0 0 40px rgba(0, 0, 0, 0.5),
+                0 0 80px rgba(0, 100, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #inventory-container::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, 
+                rgba(0, 200, 255, 0.3), 
+                transparent, 
+                rgba(0, 200, 255, 0.3), 
+                transparent);
+            background-size: 400% 400%;
+            animation: borderGlow 3s ease infinite;
+            border-radius: 15px;
+            z-index: -1;
+        }
+
+        @keyframes borderGlow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        #inventory-header {
+            padding: 20px 30px;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(0, 200, 255, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #inventory-title {
+            color: #00c8ff;
+            font-family: 'Courier New', monospace;
+            font-size: 28px;
+            letter-spacing: 8px;
+            text-shadow: 0 0 20px rgba(0, 200, 255, 0.5);
+            text-transform: uppercase;
+        }
+
+        #inventory-close {
+            background: rgba(255, 50, 50, 0.2);
+            border: 1px solid rgba(255, 50, 50, 0.5);
+            color: #ff5050;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        #inventory-close:hover {
+            background: rgba(255, 50, 50, 0.4);
+            box-shadow: 0 0 15px rgba(255, 50, 50, 0.5);
+            transform: rotate(90deg);
+        }
+
+        #inventory-body {
+            flex: 1;
+            display: flex;
+            padding: 20px;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        /* 3D Perspective Grid */
+        #inventory-grid {
+            flex: 2;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 15px;
+            perspective: 1000px;
+        }
+
+        .inventory-slot {
+            background: linear-gradient(145deg, rgba(30, 30, 50, 0.9), rgba(20, 20, 40, 0.9));
+            border: 2px solid rgba(0, 200, 255, 0.15);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            transform-style: preserve-3d;
+            transform: rotateX(5deg);
+        }
+
+        .inventory-slot::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, 
+                rgba(0, 200, 255, 0.05) 0%, 
+                transparent 50%, 
+                rgba(0, 200, 255, 0.05) 100%);
+            pointer-events: none;
+        }
+
+        .inventory-slot:hover {
+            transform: rotateX(0deg) scale(1.05) translateZ(20px);
+            border-color: rgba(0, 200, 255, 0.6);
+            box-shadow: 
+                0 10px 30px rgba(0, 200, 255, 0.3),
+                inset 0 0 20px rgba(0, 200, 255, 0.1);
+            z-index: 10;
+        }
+
+        .inventory-slot.equipped {
+            border-color: rgba(255, 200, 0, 0.8);
+            box-shadow: 
+                0 0 20px rgba(255, 200, 0, 0.3),
+                inset 0 0 15px rgba(255, 200, 0, 0.1);
+        }
+
+        .inventory-slot.equipped::after {
+            content: 'EQUIPPED';
+            position: absolute;
+            bottom: 5px;
+            right: 8px;
+            font-size: 9px;
+            color: #ffc800;
+            letter-spacing: 2px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .slot-3d-preview {
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.5));
+            transition: transform 0.3s ease;
+        }
+
+        .inventory-slot:hover .slot-3d-preview {
+            transform: scale(1.2) rotateY(15deg);
+        }
+
+        .slot-details {
+            text-align: center;
+            padding: 8px;
+            width: 100%;
+        }
+
+        .slot-name {
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            letter-spacing: 2px;
+            margin-bottom: 4px;
+        }
+
+        .slot-type {
+            color: rgba(0, 200, 255, 0.6);
+            font-size: 10px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .slot-count {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            color: #ffaa00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .slot-key {
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            background: rgba(0, 200, 255, 0.2);
+            border: 1px solid rgba(0, 200, 255, 0.4);
+            color: #00c8ff;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+
+        /* Right panel - Item details */
+        #item-details {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 200, 255, 0.15);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        #detail-preview {
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle, rgba(0, 200, 255, 0.1), transparent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+            border: 2px solid rgba(0, 200, 255, 0.2);
+            box-shadow: 0 0 30px rgba(0, 200, 255, 0.1);
+        }
+
+        #detail-name {
+            color: #00c8ff;
+            font-family: 'Courier New', monospace;
+            font-size: 20px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px rgba(0, 200, 255, 0.5);
+        }
+
+        #detail-type {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            letter-spacing: 3px;
+        }
+
+        #detail-stats {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .stat-bar {
+            width: 100%;
+        }
+
+        .stat-label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+            margin-bottom: 4px;
+        }
+
+        .stat-track {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .stat-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00c8ff, #00ff88);
+            border-radius: 3px;
+            transition: width 0.5s ease;
+            box-shadow: 0 0 10px rgba(0, 200, 255, 0.5);
+        }
+
+        #equip-btn {
+            width: 100%;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, rgba(0, 200, 255, 0.2), rgba(0, 100, 255, 0.2));
+            border: 2px solid rgba(0, 200, 255, 0.5);
+            border-radius: 8px;
+            color: #00c8ff;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            letter-spacing: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            margin-top: auto;
+        }
+
+        #equip-btn:hover {
+            background: linear-gradient(135deg, rgba(0, 200, 255, 0.4), rgba(0, 100, 255, 0.4));
+            box-shadow: 0 0 20px rgba(0, 200, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        #equip-btn.equipped {
+            border-color: rgba(255, 200, 0, 0.5);
+            color: #ffc800;
+            background: linear-gradient(135deg, rgba(255, 200, 0, 0.2), rgba(255, 150, 0, 0.2));
+        }
+
+        #unequip-btn {
+            width: 100%;
+            padding: 10px 20px;
+            background: rgba(255, 50, 50, 0.1);
+            border: 1px solid rgba(255, 50, 50, 0.3);
+            border-radius: 8px;
+            color: #ff5050;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            display: none;
+        }
+
+        #unequip-btn:hover {
+            background: rgba(255, 50, 50, 0.2);
+            box-shadow: 0 0 15px rgba(255, 50, 50, 0.3);
+        }
+
+        #inventory-footer {
+            padding: 15px 30px;
+            background: rgba(0, 0, 0, 0.3);
+            border-top: 1px solid rgba(0, 200, 255, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-hint {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+        }
+
+        .footer-hint span {
+            color: #00c8ff;
+            background: rgba(0, 200, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 200, 255, 0.3);
+        }
+
+        /* Notification */
+        #notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 200, 255, 0.9);
+            color: #000;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            letter-spacing: 3px;
+            z-index: 500;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        #notification.show {
+            opacity: 1;
+        }
+
+        /* Scrollbar styling */
+        #inventory-body::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #inventory-body::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        #inventory-body::-webkit-scrollbar-thumb {
+            background: rgba(0, 200, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        #inventory-body::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 200, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Bodycam effects overlay -->
+    <div id="bodycam-overlay"></div>
+    <div id="vignette"></div>
+    <div id="scanlines"></div>
+    <div id="grain"></div>
+    <div id="lens-border"></div>
+    <div id="chromatic-border"></div>
+    <div id="color-grade"></div>
+    <div id="light-leak"></div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div id="rec-indicator">
+            <div id="rec-dot"></div>
+            <span>REC</span>
+        </div>
+        <div id="timestamp"></div>
+        <div id="camera-id">
+            BODYCAM #4721<br>
+            OFFICER: J. DOE<br>
+            PRECINCT: 12TH
+        </div>
+        <div id="crosshair"></div>
+        <div id="battery">
+            <span>75%</span>
+            <div id="battery-icon"><div id="battery-level"></div></div>
+        </div>
+        <div id="ammo-display">7 / 7</div>
+        <div id="weapon-indicator">FISTS</div>
+    </div>
+
+    <!-- 3D Inventory System -->
+    <div id="inventory-overlay">
+        <div id="inventory-container">
+            <div id="inventory-header">
+                <div id="inventory-title">INVENTORY</div>
+                <button id="inventory-close" onclick="toggleInventory()">✕</button>
+            </div>
+            <div id="inventory-body">
+                <div id="inventory-grid">
+                    <!-- Inventory slots will be generated by JS -->
+                </div>
+                <div id="item-details">
+                    <div id="detail-preview">🎯</div>
+                    <div id="detail-name">SELECT ITEM</div>
+                    <div id="detail-type">---</div>
+                    <div id="detail-stats">
+                        <div class="stat-bar">
+                            <div class="stat-label">DAMAGE</div>
+                            <div class="stat-track"><div class="stat-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-label">RANGE</div>
+                            <div class="stat-track"><div class="stat-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-label">ACCURACY</div>
+                            <div class="stat-track"><div class="stat-fill" style="width: 0%"></div></div>
+                        </div>
+                    </div>
+                    <button id="equip-btn" onclick="equipSelectedItem()">EQUIP</button>
+                    <button id="unequip-btn" onclick="unequipSelectedItem()">UNEQUIP</button>
+                </div>
+            </div>
+            <div id="inventory-footer">
+                <div class="footer-hint"><span>1-9</span> QUICK EQUIP &nbsp; <span>TAB</span> CLOSE &nbsp; <span>CLICK</span> SELECT</div>
+                <div class="footer-hint">PRESS <span>E</span> TO INTERACT WITH DOORS</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script>
+        // ========== GAME STATE ==========
+        const state = {
+            isLocked: false,
+            moveForward: false, moveBackward: false,
+            moveLeft: false, moveRight: false,
+            canJump: true,
+            velocity: new THREE.Vector3(),
+            direction: new THREE.Vector3()
+        };
+
+        // ========== INVENTORY SYSTEM ==========
+        const inventoryItems = [
+            {
+                id: 'pistol',
+                name: 'Colt 1911',
+                type: 'PISTOL',
+                icon: '🔫',
+                count: 1,
+                key: '1',
+                damage: 35,
+                range: 60,
+                accuracy: 75,
+                canEquip: true,
+                equipped: false
+            },
+            {
+                id: 'ammo',
+                name: '9mm Ammo',
+                type: 'AMMUNITION',
+                icon: '📦',
+                count: 35,
+                key: '2',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'medkit',
+                name: 'Medkit',
+                type: 'HEALING',
+                icon: '➕',
+                count: 2,
+                key: '3',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'flashlight',
+                name: 'Flashlight',
+                type: 'TOOL',
+                icon: '🔦',
+                count: 1,
+                key: '4',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'radio',
+                name: 'Radio',
+                type: 'COMM',
+                icon: '📻',
+                count: 1,
+                key: '5',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'cuffs',
+                name: 'Handcuffs',
+                type: 'TOOL',
+                icon: '⛓️',
+                count: 1,
+                key: '6',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'empty1',
+                name: 'Empty',
+                type: 'EMPTY',
+                icon: '',
+                count: 0,
+                key: '7',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'empty2',
+                name: 'Empty',
+                type: 'EMPTY',
+                icon: '',
+                count: 0,
+                key: '8',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            },
+            {
+                id: 'empty3',
+                name: 'Empty',
+                type: 'EMPTY',
+                icon: '',
+                count: 0,
+                key: '9',
+                damage: 0,
+                range: 0,
+                accuracy: 0,
+                canEquip: false,
+                equipped: false
+            }
+        ];
+
+        let selectedSlot = -1;
+        let currentWeapon = null; // null means fists
+        let inventoryOpen = false;
+
+        function showNotification(text) {
+            const notif = document.getElementById('notification');
+            notif.textContent = text;
+            notif.classList.add('show');
+            setTimeout(() => notif.classList.remove('show'), 1500);
+        }
+
+        function renderInventory() {
+            const grid = document.getElementById('inventory-grid');
+            grid.innerHTML = '';
+
+            inventoryItems.forEach((item, index) => {
+                const slot = document.createElement('div');
+                slot.className = 'inventory-slot' + (item.equipped ? ' equipped' : '');
+                slot.dataset.index = index;
+                slot.onclick = () => selectItem(index);
+
+                if (item.icon) {
+                    slot.innerHTML = `
+                        <div class="slot-key">${item.key}</div>
+                        ${item.count > 0 ? `<div class="slot-count">${item.count}</div>` : ''}
+                        <div class="slot-3d-preview">${item.icon}</div>
+                        <div class="slot-details">
+                            <div class="slot-name">${item.name}</div>
+                            <div class="slot-type">${item.type}</div>
+                        </div>
+                    `;
+                } else {
+                    slot.innerHTML = `
+                        <div class="slot-key">${item.key}</div>
+                        <div class="slot-3d-preview" style="opacity: 0.2; font-size: 24px;">+</div>
+                        <div class="slot-details">
+                            <div class="slot-name" style="opacity: 0.3;">EMPTY</div>
+                        </div>
+                    `;
+                }
+
+                grid.appendChild(slot);
+            });
+        }
+
+        function selectItem(index) {
+            selectedSlot = index;
+            const item = inventoryItems[index];
+
+            // Update details panel
+            document.getElementById('detail-preview').textContent = item.icon || '🎯';
+            document.getElementById('detail-name').textContent = item.name;
+            document.getElementById('detail-type').textContent = item.type;
+
+            // Update stat bars
+            const stats = document.querySelectorAll('#detail-stats .stat-fill');
+            stats[0].style.width = item.damage + '%';
+            stats[1].style.width = item.range + '%';
+            stats[2].style.width = item.accuracy + '%';
+
+            // Update equip button
+            const equipBtn = document.getElementById('equip-btn');
+            const unequipBtn = document.getElementById('unequip-btn');
+
+            if (item.canEquip && item.count > 0) {
+                equipBtn.style.display = 'block';
+                if (item.equipped) {
+                    equipBtn.textContent = 'EQUIPPED';
+                    equipBtn.classList.add('equipped');
+                    unequipBtn.style.display = 'block';
+                } else {
+                    equipBtn.textContent = 'EQUIP';
+                    equipBtn.classList.remove('equipped');
+                    unequipBtn.style.display = 'none';
+                }
+            } else {
+                equipBtn.style.display = 'none';
+                unequipBtn.style.display = 'none';
+            }
+
+            // Highlight selected slot
+            document.querySelectorAll('.inventory-slot').forEach((slot, i) => {
+                slot.style.boxShadow = i === index ? '0 0 20px rgba(0, 200, 255, 0.5)' : '';
+            });
+        }
+
+        function equipSelectedItem() {
+            if (selectedSlot < 0 || selectedSlot >= inventoryItems.length) return;
+            const item = inventoryItems[selectedSlot];
+
+            if (!item.canEquip || item.count <= 0) {
+                showNotification('CANNOT EQUIP THIS ITEM');
+                return;
+            }
+
+            // Unequip current weapon
+            if (currentWeapon !== null) {
+                const currentIdx = inventoryItems.findIndex(i => i.id === currentWeapon);
+                if (currentIdx >= 0) {
+                    inventoryItems[currentIdx].equipped = false;
+                }
+            }
+
+            // Equip new item
+            item.equipped = true;
+            currentWeapon = item.id;
+
+            // Update weapon indicator
+            document.getElementById('weapon-indicator').textContent = item.name.toUpperCase();
+
+            // Show gun model if equipping pistol
+            if (item.id === 'pistol' && gunModel) {
+                gunModel.visible = true;
+            } else if (gunModel) {
+                gunModel.visible = false;
+            }
+
+            showNotification(item.name + ' EQUIPPED');
+            renderInventory();
+            selectItem(selectedSlot);
+        }
+
+        function unequipSelectedItem() {
+            if (selectedSlot < 0 || selectedSlot >= inventoryItems.length) return;
+            const item = inventoryItems[selectedSlot];
+
+            if (!item.equipped) return;
+
+            item.equipped = false;
+            currentWeapon = null;
+
+            document.getElementById('weapon-indicator').textContent = 'FISTS';
+
+            if (gunModel) {
+                gunModel.visible = false;
+            }
+
+            showNotification(item.name + ' UNEQUIPPED');
+            renderInventory();
+            selectItem(selectedSlot);
+        }
+
+        function equipByKey(keyNum) {
+            const index = keyNum - 1;
+            if (index >= 0 && index < inventoryItems.length) {
+                const item = inventoryItems[index];
+                if (item.count > 0) {
+                    if (item.canEquip) {
+                        if (item.equipped) {
+                            // Unequip
+                            item.equipped = false;
+                            currentWeapon = null;
+                            document.getElementById('weapon-indicator').textContent = 'FISTS';
+                            if (gunModel) gunModel.visible = false;
+                            showNotification(item.name + ' UNEQUIPPED');
+                        } else {
+                            // Unequip current first
+                            if (currentWeapon !== null) {
+                                const currentIdx = inventoryItems.findIndex(i => i.id === currentWeapon);
+                                if (currentIdx >= 0) {
+                                    inventoryItems[currentIdx].equipped = false;
+                                }
+                            }
+                            // Equip new
+                            item.equipped = true;
+                            currentWeapon = item.id;
+                            document.getElementById('weapon-indicator').textContent = item.name.toUpperCase();
+                            if (item.id === 'pistol' && gunModel) {
+                                gunModel.visible = true;
+                            }
+                            showNotification(item.name + ' EQUIPPED');
+                        }
+                        renderInventory();
+                    } else {
+                        showNotification('CANNOT EQUIP ' + item.name);
+                    }
+                }
+            }
+        }
+
+        function toggleInventory() {
+            inventoryOpen = !inventoryOpen;
+            const overlay = document.getElementById('inventory-overlay');
+
+            if (inventoryOpen) {
+                overlay.style.display = 'flex';
+                document.body.style.cursor = 'default';
+                document.exitPointerLock();
+                renderInventory();
+                if (currentWeapon !== null) {
+                    selectItem(inventoryItems.findIndex(i => i.id === currentWeapon));
+                }
+            } else {
+                overlay.style.display = 'none';
+                document.body.style.cursor = 'none';
+                renderer.domElement.requestPointerLock();
+            }
+        }
+
+        // ========== THREE.JS SETUP ==========
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x8899aa, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.7, 5);
+
+        const viewmodel = new THREE.Object3D();
+        camera.add(viewmodel);
+        scene.add(camera);
+
+        // Gun variables
+        let gunModel = null;
+        let gunContainer = new THREE.Object3D();
+        viewmodel.add(gunContainer);
+        let isReloading = false;
+        let currentAmmo = 7;
+        const maxAmmo = 7;
+        let canShoot = true;
+        const shootCooldown = 300;
+
+        // Bullets
+        const bullets = [];
+        const bulletSpeed = 50;
+        const bulletGeometry = new THREE.SphereGeometry(0.02, 4, 4);
+        const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+
+        // Sound
+        const pistolSound = new Audio('звуки/loud-pistol-shot.mp3');
+        pistolSound.volume = 0.4;
+
+        // Shoot function
+        function shoot() {
+            // Only shoot if pistol is equipped
+            if (currentWeapon !== 'pistol') {
+                showNotification('EQUIP PISTOL FIRST [PRESS 1]');
+                return;
+            }
+
+            if (!canShoot || isReloading || currentAmmo <= 0) return;
+
+            canShoot = false;
+            currentAmmo--;
+            updateAmmoDisplay();
+
+            // Play sound
+            pistolSound.currentTime = 0;
+            pistolSound.play().catch(e => console.log('Sound failed:', e));
+
+            // Create bullet
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+            const startPos = new THREE.Vector3();
+            camera.getWorldPosition(startPos);
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+
+            bullet.position.copy(startPos).add(direction.multiplyScalar(0.5));
+            bullet.userData.velocity = direction.normalize().clone().multiplyScalar(bulletSpeed);
+            bullet.userData.life = 2;
+
+            scene.add(bullet);
+            bullets.push(bullet);
+
+            // Muzzle flash
+            const flash = new THREE.PointLight(0xffaa00, 2, 5);
+            const flashPos = new THREE.Vector3();
+            gunContainer.getWorldPosition(flashPos);
+            flash.position.copy(flashPos);
+            scene.add(flash);
+            setTimeout(() => scene.remove(flash), 50);
+
+            // Gun recoil animation
+            if (gunContainer) {
+                gunContainer.position.z += 0.05;
+                gunContainer.rotation.x += 0.05;
+                setTimeout(() => {
+                    if (gunContainer) {
+                        gunContainer.position.z -= 0.05;
+                        gunContainer.rotation.x -= 0.05;
+                    }
+                }, 100);
+            }
+
+            setTimeout(() => { canShoot = true; }, shootCooldown);
+        }
+
+        function reload() {
+            if (isReloading || currentAmmo === maxAmmo) return;
+            if (currentWeapon !== 'pistol') {
+                showNotification('EQUIP PISTOL FIRST [PRESS 1]');
+                return;
+            }
+            isReloading = true;
+            showNotification('RELOADING...');
+
+            setTimeout(() => {
+                currentAmmo = maxAmmo;
+                isReloading = false;
+                updateAmmoDisplay();
+                showNotification('RELOADED');
+            }, 1500);
+        }
+
+        function updateAmmoDisplay() {
+            const ammoEl = document.getElementById('ammo-display');
+            if (ammoEl) {
+                ammoEl.textContent = currentAmmo + ' / ' + maxAmmo;
+            }
+        }
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.9;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // Collision system
+        const collidableObjects = [];
+        const collisionRaycaster = new THREE.Raycaster();
+        const collisionDownRay = new THREE.Raycaster();
+        const collisionHorizontalRays = [];
+
+        for (let i = 0; i < 8; i++) {
+            collisionHorizontalRays.push(new THREE.Raycaster());
+        }
+
+        function checkCollision(position, movementVector) {
+            const playerHeight = 1.7;
+            const collisionDistance = 0.5;
+
+            const directions = [
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(-1, 0, 0),
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Vector3(0, 0, -1),
+                new THREE.Vector3(0.707, 0, 0.707),
+                new THREE.Vector3(-0.707, 0, 0.707),
+                new THREE.Vector3(0.707, 0, -0.707),
+                new THREE.Vector3(-0.707, 0, -0.707)
+            ];
+
+            for (let i = 0; i < directions.length; i++) {
+                const dir = directions[i].clone();
+                const yaw = new THREE.Euler(0, mouseEuler.y, 0, 'YXZ');
+                dir.applyEuler(yaw);
+
+                const rayOrigin = position.clone();
+                rayOrigin.y = playerHeight / 2;
+
+                collisionHorizontalRays[i].set(rayOrigin, dir);
+                collisionHorizontalRays[i].far = collisionDistance;
+
+                const intersects = collisionHorizontalRays[i].intersectObjects(collidableObjects, true);
+                if (intersects.length > 0) {
+                    const pushBack = dir.clone().negate().multiplyScalar(collisionDistance - intersects[0].distance);
+                    position.add(pushBack);
+                }
+            }
+
+            collisionDownRay.set(position.clone(), new THREE.Vector3(0, -1, 0));
+            collisionDownRay.far = playerHeight + 0.1;
+            const floorIntersects = collisionDownRay.intersectObjects(collidableObjects, true);
+
+            if (floorIntersects.length > 0) {
+                const floorY = floorIntersects[0].point.y;
+                if (position.y - playerHeight < floorY + 0.1) {
+                    position.y = floorY + playerHeight;
+                    state.velocity.y = Math.max(0, state.velocity.y);
+                    state.canJump = true;
+                }
+            }
+
+            collisionDownRay.set(position.clone(), new THREE.Vector3(0, 1, 0));
+            collisionDownRay.far = 1;
+            const ceilingIntersects = collisionDownRay.intersectObjects(collidableObjects, true);
+            if (ceilingIntersects.length > 0 && state.velocity.y > 0) {
+                state.velocity.y = 0;
+            }
+        }
+
+        // Load models
+        const gltfLoader = new THREE.GLTFLoader();
+        let modelLoaded = false;
+
+        gltfLoader.load('gun/scene.gltf', function(gltf) {
+            gunModel = gltf.scene;
+            gunModel.scale.set(0.03, 0.03, 0.03);
+            gunModel.rotation.set(0, 0, 0);
+            gunModel.rotation.x = -Math.PI / 2;
+            gunModel.rotation.y = Math.PI / 2;
+            gunModel.rotation.z = 0;
+            gunModel.position.set(0, 0, 0);
+
+            gunContainer.add(gunModel);
+            viewmodel.position.set(0.25, -0.3, -0.4);
+            viewmodel.rotation.set(
+                Math.PI / 2,
+                -Math.PI / 30,
+                Math.PI / 15
+            );
+
+            // Start with gun hidden (not equipped)
+            gunModel.visible = false;
+
+            console.log('Gun model loaded');
+        }, undefined, function(error) {
+            console.error('Error loading gun model:', error);
+        });
+
+        gltfLoader.load('placee/scene.gltf', function(gltf) {
+            const model = gltf.scene;
+            model.traverse(function(child) {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    collidableObjects.push(child);
+                }
+            });
+            scene.add(model);
+            modelLoaded = true;
+            console.log('Placee model loaded');
+        }, undefined, function(error) {
+            console.error('Error loading placee model:', error);
+            createFallbackEnvironment();
+        });
+
+        function createFallbackEnvironment() {
+            const ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(100, 100),
+                new THREE.MeshLambertMaterial({ color: 0x5a6b4a })
+            );
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            collidableObjects.push(ground);
+
+            createBuilding(0, -10, 20, 5, 1, 0x666666);
+            createBuilding(-10, 0, 1, 5, 20, 0x777777);
+            createBuilding(10, 0, 1, 5, 20, 0x777777);
+        }
+
+        function createBuilding(x, z, width, height, depth, color) {
+            const geometry = new THREE.BoxGeometry(width, height, depth);
+            const material = new THREE.MeshLambertMaterial({ color: color });
+            const building = new THREE.Mesh(geometry, material);
+            building.position.set(x, height / 2, z);
+            building.castShadow = true;
+            building.receiveShadow = true;
+            scene.add(building);
+            collidableObjects.push(building);
+            return building;
+        }
+
+        // Post-processing
+        const postScene = new THREE.Scene();
+        const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+        const renderTarget = new THREE.WebGLRenderTarget(
+            window.innerWidth, window.innerHeight,
+            { minFilter: THREE.LinearFilter, magFilter: THREE.NearestFilter }
+        );
+
+        const bodycamShader = {
+            uniforms: {
+                tDiffuse: { value: null },
+                time: { value: 0 },
+                distortion: { value: 0.15 },
+                chromaticAmount: { value: 0.0 },
+                resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D tDiffuse;
+                uniform float time;
+                uniform float distortion;
+                uniform float chromaticAmount;
+                uniform vec2 resolution;
+                varying vec2 vUv;
+
+                vec2 barrelDistortion(vec2 uv, float amount) {
+                    vec2 center = uv - 0.5;
+                    float r2 = center.x * center.x + center.y * center.y;
+                    float dist = 1.0 + amount * r2 + amount * amount * r2 * r2;
+                    return center * dist + 0.5;
+                }
+
+                void main() {
+                    vec2 distortedUv = barrelDistortion(vUv, distortion);
+
+                    if (distortedUv.x < 0.0 || distortedUv.x > 1.0 ||
+                        distortedUv.y < 0.0 || distortedUv.y > 1.0) {
+                        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                        return;
+                    }
+
+                    float aberrX = chromaticAmount * (distortedUv.x - 0.5);
+                    float aberrY = chromaticAmount * (distortedUv.y - 0.5);
+
+                    float r = texture2D(tDiffuse, distortedUv + vec2(aberrX, aberrY)).r;
+                    float g = texture2D(tDiffuse, distortedUv).g;
+                    float b = texture2D(tDiffuse, distortedUv - vec2(aberrX, aberrY)).b;
+
+                    vec3 color = vec3(r, g, b);
+                    color = mix(color, vec3(dot(color, vec3(0.299, 0.587, 0.114))), 0.15);
+                    color *= vec3(0.95, 0.98, 1.05);
+                    color = (color - 0.5) * 1.15 + 0.5;
+
+                    float noise = fract(sin(dot(distortedUv * time, vec2(12.9898, 78.233))) * 43758.5453);
+                    color += (noise - 0.5) * 0.04;
+
+                    gl_FragColor = vec4(color, 1.0);
+                }
+            `
+        };
+
+        const postMaterial = new THREE.ShaderMaterial(bodycamShader);
+        const postQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMaterial);
+        postScene.add(postQuad);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffeedd, 1.5);
+        scene.add(ambientLight);
+
+        const warmLight1 = new THREE.PointLight(0xffaa55, 1.2, 15);
+        warmLight1.position.set(0, 3, 0);
+        scene.add(warmLight1);
+
+        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+        sun.position.set(50, 100, 50);
+        sun.castShadow = true;
+        sun.shadow.camera.left = -50;
+        sun.shadow.camera.right = 50;
+        sun.shadow.camera.top = 50;
+        sun.shadow.camera.bottom = -50;
+        sun.shadow.mapSize.width = 2048;
+        sun.shadow.mapSize.height = 2048;
+        scene.add(sun);
+
+        // Door system
+        let isIndoors = true;
+        let isTransitioning = false;
+        let transitionAlpha = 0;
+        let transitionTarget = 0;
+        const doorZones = [];
+
+        function createDoorMarker(position, normal, name) {
+            const geometry = new THREE.PlaneGeometry(1.5, 2.5);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.15,
+                side: THREE.DoubleSide
+            });
+            const marker = new THREE.Mesh(geometry, material);
+            marker.position.copy(position);
+            marker.lookAt(position.clone().add(normal));
+            marker.userData = { isDoor: true, doorName: name };
+            scene.add(marker);
+            return marker;
+        }
+
+        function setupDoors() {
+            doorZones.push({
+                position: new THREE.Vector3(2, 0, 7),
+                normal: new THREE.Vector3(0, 0, -1),
+                name: 'Главный вход',
+                outsidePosition: new THREE.Vector3(2, 0, 12),
+                marker: null
+            });
+
+            doorZones.push({
+                position: new THREE.Vector3(-5, 0, -3),
+                normal: new THREE.Vector3(-1, 0, 0),
+                name: 'Служебный вход',
+                outsidePosition: new THREE.Vector3(-10, 0, -3),
+                marker: null
+            });
+
+            doorZones.forEach(door => {
+                door.marker = createDoorMarker(door.position, door.normal, door.name);
+            });
+        }
+
+        function checkDoorProximity() {
+            if (isTransitioning) return;
+
+            let nearDoor = null;
+            doorZones.forEach(door => {
+                const distance = camera.position.distanceTo(door.position);
+                if (distance < 2.5) {
+                    nearDoor = door;
+                }
+            });
+
+            if (nearDoor) {
+                showDoorHint(nearDoor.name);
+            } else {
+                hideDoorHint();
+            }
+        }
+
+        let doorHintElement = null;
+
+        function showDoorHint(doorName) {
+            if (!doorHintElement) {
+                doorHintElement = document.createElement('div');
+                doorHintElement.style.cssText = `
+                    position: fixed;
+                    top: 60%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    color: #fff;
+                    font-family: 'Courier New', monospace;
+                    font-size: 18px;
+                    text-shadow: 0 0 10px rgba(255,255,255,0.8);
+                    z-index: 70;
+                    pointer-events: none;
+                    text-align: center;
+                `;
+                document.body.appendChild(doorHintElement);
+            }
+            doorHintElement.textContent = `[E] ${doorName}`;
+            doorHintElement.style.display = 'block';
+        }
+
+        function hideDoorHint() {
+            if (doorHintElement) {
+                doorHintElement.style.display = 'none';
+            }
+        }
+
+        function tryOpenDoor() {
+            if (isTransitioning) return;
+
+            let nearestDoor = null;
+            let nearestDistance = 2.5;
+
+            doorZones.forEach(door => {
+                const distance = camera.position.distanceTo(door.position);
+                if (distance < nearestDistance) {
+                    nearestDoor = door;
+                    nearestDistance = distance;
+                }
+            });
+
+            if (nearestDoor) {
+                startTransition(nearestDoor);
+            }
+        }
+
+        function startTransition(door) {
+            isTransitioning = true;
+            transitionTarget = 1;
+
+            setTimeout(() => {
+                if (isIndoors) {
+                    const targetPos = door.position.clone().add(door.normal.clone().multiplyScalar(-4));
+                    camera.position.copy(targetPos);
+                    camera.position.y = 1.7;
+
+                    ambientLight.color.set(0x8899bb);
+                    ambientLight.intensity = 1.0;
+                    warmLight1.intensity = 0.3;
+                    sun.intensity = 1.2;
+                    sun.color.set(0xffffff);
+                    scene.fog.color.set(0x8899aa);
+                    scene.fog.density = 0.015;
+
+                    isIndoors = false;
+                } else {
+                    const targetPos = door.position.clone().add(door.normal.clone().multiplyScalar(2));
+                    camera.position.copy(targetPos);
+                    camera.position.y = 1.7;
+
+                    ambientLight.color.set(0xffeedd);
+                    ambientLight.intensity = 1.5;
+                    warmLight1.intensity = 1.2;
+                    sun.intensity = 0.8;
+                    sun.color.set(0xffffff);
+                    scene.fog.color.set(0x8899aa);
+                    scene.fog.density = 0.015;
+
+                    isIndoors = true;
+                }
+
+                transitionTarget = 0;
+
+                setTimeout(() => {
+                    isTransitioning = false;
+                }, 300);
+            }, 300);
+        }
+
+        const transitionOverlay = document.createElement('div');
+        transitionOverlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+            opacity: 0;
+            z-index: 80;
+            pointer-events: none;
+            transition: opacity 0.5s ease-in-out;
+        `;
+        document.body.appendChild(transitionOverlay);
+
+        function updateTransition() {
+            if (isTransitioning || transitionAlpha > 0.01) {
+                transitionAlpha += (transitionTarget - transitionAlpha) * 0.1;
+                transitionOverlay.style.opacity = transitionAlpha;
+            }
+        }
+
+        setTimeout(setupDoors, 1500);
+
+        // ========== INPUT HANDLING ==========
+        document.addEventListener('pointerlockchange', () => {
+            state.isLocked = document.pointerLockElement === renderer.domElement;
+        });
+
+        const mouseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+        const mouseSensitivity = 0.002;
+
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement !== renderer.domElement) return;
+            mouseEuler.y -= e.movementX * mouseSensitivity;
+            mouseEuler.x -= e.movementY * mouseSensitivity;
+            mouseEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseEuler.x));
+            camera.quaternion.setFromEuler(mouseEuler);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            // Don't process game keys when inventory is open
+            if (inventoryOpen && e.code !== 'Tab') return;
+
+            switch (e.code) {
+                case 'KeyW': state.moveForward = true; break;
+                case 'KeyA': state.moveLeft = true; break;
+                case 'KeyS': state.moveBackward = true; break;
+                case 'KeyD': state.moveRight = true; break;
+                case 'Space':
+                    if (state.canJump) { state.velocity.y = 8; state.canJump = false; }
+                    break;
+                case 'KeyE':
+                    tryOpenDoor();
+                    break;
+                case 'KeyR':
+                    reload();
+                    break;
+                case 'Tab':
+                    e.preventDefault();
+                    toggleInventory();
+                    break;
+                case 'Digit1': equipByKey(1); break;
+                case 'Digit2': equipByKey(2); break;
+                case 'Digit3': equipByKey(3); break;
+                case 'Digit4': equipByKey(4); break;
+                case 'Digit5': equipByKey(5); break;
+                case 'Digit6': equipByKey(6); break;
+                case 'Digit7': equipByKey(7); break;
+                case 'Digit8': equipByKey(8); break;
+                case 'Digit9': equipByKey(9); break;
+            }
+        });
+
+        // Shooting with left click - FIXED: works repeatedly
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && document.pointerLockElement === renderer.domElement && !inventoryOpen) {
+                shoot();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch (e.code) {
+                case 'KeyW': state.moveForward = false; break;
+                case 'KeyA': state.moveLeft = false; break;
+                case 'KeyS': state.moveBackward = false; break;
+                case 'KeyD': state.moveRight = false; break;
+            }
+        });
+
+        const clock = new THREE.Clock();
+        let headBobPhase = 0;
+        let isMoving = false;
+        let isJumping = false;
+
+        // Update timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-US', {
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            }).replace(/\//g, '/');
+            const timeStr = now.toLocaleTimeString('en-US', {
+                hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            document.getElementById('timestamp').textContent = `${dateStr} ${timeStr}`;
+        }
+        setInterval(updateTimestamp, 1000);
+        updateTimestamp();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            if (state.isLocked && !inventoryOpen) {
+                // Gravity
+                state.velocity.y -= 20 * delta;
+
+                // Movement
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                forward.y = 0;
+                forward.normalize();
+
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                right.y = 0;
+                right.normalize();
+
+                const moveVector = new THREE.Vector3(0, 0, 0);
+                const speed = 3;
+
+                if (state.moveForward) moveVector.addScaledVector(forward, speed * delta);
+                if (state.moveBackward) moveVector.addScaledVector(forward, -speed * delta);
+                if (state.moveLeft) moveVector.addScaledVector(right, -speed * delta);
+                if (state.moveRight) moveVector.addScaledVector(right, speed * delta);
+
+                if (modelLoaded) {
+                    const newPosition = camera.position.clone().add(moveVector);
+                    checkCollision(newPosition, moveVector);
+                    camera.position.copy(newPosition);
+                    camera.position.y += state.velocity.y * delta;
+
+                    if (camera.position.y < 1.7) {
+                        camera.position.y = 1.7;
+                        state.velocity.y = 0;
+                        state.canJump = true;
+                    }
+                } else {
+                    camera.position.add(moveVector);
+                    camera.position.y += state.velocity.y * delta;
+
+                    if (camera.position.y < 1.7) {
+                        camera.position.y = 1.7;
+                        state.velocity.y = 0;
+                        state.canJump = true;
+                    }
+                }
+
+                checkDoorProximity();
+
+                isMoving = state.moveForward || state.moveBackward || state.moveLeft || state.moveRight;
+                isJumping = camera.position.y > 2.1;
+
+                if (isMoving && !isJumping) {
+                    headBobPhase += delta * 8;
+                    const bobAmount = Math.sin(headBobPhase) * 0.015;
+                    camera.position.y += bobAmount;
+                    mouseEuler.z = Math.sin(headBobPhase) * 0.003;
+                    camera.quaternion.setFromEuler(mouseEuler);
+                } else {
+                    mouseEuler.z = 0;
+                }
+            }
+
+            // Update bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.position.add(bullet.userData.velocity.clone().multiplyScalar(delta));
+                bullet.userData.life -= delta;
+
+                const bulletPrevPos = bullet.position.clone().sub(bullet.userData.velocity.clone().multiplyScalar(delta));
+                const bulletDir = bullet.userData.velocity.clone().normalize();
+                const bulletRay = new THREE.Raycaster(bulletPrevPos, bulletDir);
+                bulletRay.far = bullet.userData.velocity.length() * delta + 0.1;
+                const bulletHits = bulletRay.intersectObjects(collidableObjects, true);
+
+                if (bulletHits.length > 0 || bullet.userData.life <= 0) {
+                    if (bulletHits.length > 0) {
+                        const impact = new THREE.PointLight(0xff6600, 1, 2);
+                        impact.position.copy(bulletHits[0].point);
+                        scene.add(impact);
+                        setTimeout(() => scene.remove(impact), 100);
+                    }
+
+                    scene.remove(bullet);
+                    bullets.splice(i, 1);
+                }
+            }
+
+            updateTransition();
+            postMaterial.uniforms.time.value = elapsed;
+
+            renderer.setRenderTarget(renderTarget);
+            renderer.render(scene, camera);
+
+            renderer.setRenderTarget(null);
+            postMaterial.uniforms.tDiffuse.value = renderTarget.texture;
+            renderer.render(postScene, postCamera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderTarget.setSize(window.innerWidth, window.innerHeight);
+            postMaterial.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+        });
+
+        // Start with body cursor hidden
+        document.body.style.cursor = 'none';
+
+        animate();
+    </script>
+</body>
+</html>
